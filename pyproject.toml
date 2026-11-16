@@ -1,0 +1,19 @@
+# For details on building Rust extensions: https://docs.astral.sh/uv/concepts/projects/init/#projects-with-extension-modules
+[project]
+name = "deseq2-rs"
+version = "0.1.0"
+description = "Python bindings for rust_deseq2, a fast and memory efficient DESeq2 implementation in Rust"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.23", "polars>=1.26,<2"]
+
+[tool.maturin]
+module-name = "deseq2_rs._core"
+features = ["pyo3/extension-module"]
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "deseq2_rs/**/*" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"

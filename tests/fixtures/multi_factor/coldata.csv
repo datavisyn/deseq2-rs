@@ -1,0 +1,13 @@
+sample,condition,batch,age
+s0,a,x,-0.05
+s1,a,y,-1.98
+s2,a,x,0.07
+s3,a,y,-2.1
+s4,a,x,-2.15
+s5,a,y,-0.81
+s6,b,x,-1.61
+s7,b,y,0.02
+s8,b,x,2.22
+s9,b,y,-1.42
+s10,b,x,2.44
+s11,b,y,-0.75

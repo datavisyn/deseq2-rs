@@ -1,19 +1,52 @@
-# For details on building Rust extensions: https://docs.astral.sh/uv/concepts/projects/init/#projects-with-extension-modules
 [project]
 name = "deseq2-rs"
-version = "0.1.0"
+dynamic = ["version"]  # from Cargo.toml
 description = "Python bindings for rust_deseq2, a fast and memory efficient DESeq2 implementation in Rust"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES.md"]
+authors = [{ name = "datavisyn GmbH" }]
 requires-python = ">=3.12"
 dependencies = ["numpy>=1.23", "polars>=1.26,<2"]
+keywords = ["deseq2", "rna-seq", "differential-expression", "bioinformatics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pandas>=2", "pydeseq2>=0.5.2,<0.6"]
+
+[project.urls]
+Repository = "https://github.com/datavisyn/deseq2-rs"
+Issues = "https://github.com/datavisyn/deseq2-rs/issues"
+Upstream = "https://github.com/necoli1822/rust_deseq2"
 
 [tool.maturin]
+python-source = "python"
 module-name = "deseq2_rs._core"
+# abi3-py312 (Cargo.toml): one wheel per platform for all CPython >= 3.12
 features = ["pyo3/extension-module"]
+include = [{ path = "LICENSE", format = "sdist" }, { path = "THIRD_PARTY_LICENSES.md", format = "sdist" }]
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "deseq2_rs/**/*" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "src/**/*.rs" },
+    { file = "python/deseq2_rs/**/*" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# never import the source tree, always the installed package (the wheel in CI)
+addopts = ["--import-mode=importlib"]
 
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"

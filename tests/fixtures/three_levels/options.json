@@ -1,0 +1,16 @@
+{
+  "description": "Condition with three levels, contrast c vs a",
+  "numerator": "c",
+  "denominator": "a",
+  "levels": [
+    "a",
+    "b",
+    "c"
+  ],
+  "factors": [],
+  "continuous": [],
+  "alpha": 0.1,
+  "independent_filter": true,
+  "cooks_filter": true,
+  "refit_cooks": true
+}

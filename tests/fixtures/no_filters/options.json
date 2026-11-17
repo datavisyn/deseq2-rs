@@ -1,0 +1,15 @@
+{
+  "description": "Independent filtering, Cook's filtering and outlier replacement disabled",
+  "numerator": "a",
+  "denominator": "b",
+  "levels": [
+    "a",
+    "b"
+  ],
+  "factors": [],
+  "continuous": [],
+  "alpha": 0.1,
+  "independent_filter": false,
+  "cooks_filter": false,
+  "refit_cooks": false
+}

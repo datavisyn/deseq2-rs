@@ -1,10 +1,10 @@
 """
 Compares runtime, peak memory and results of deseq2_rs and pydeseq2 on synthetic counts.
 
-    python visyn_pro/libs/deseq2_rs/benchmarks/compare_pydeseq2.py --samples 50 200 --genes 20000
+    python benchmarks/compare_pydeseq2.py --samples 50 200 --genes 20000
 
 Every engine runs in its own subprocess, so its peak RSS (minus the RSS after creating the counts) is measured in isolation.
-pydeseq2 is configured like visyn_pro's diff_exp_live task (low_memory, condition as 0/1, joblib workers).
+pydeseq2 is configured like the visyn_pro diff exp task (low_memory, condition as 0/1, joblib workers).
 """
 
 import argparse

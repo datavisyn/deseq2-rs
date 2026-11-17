@@ -38,17 +38,17 @@ pub struct Options {
     pub independent_filtering: bool,
 }
 
-/// Runs size factors, dispersions, GLM fit, Wald test, outlier handling and filtering.
+/// Builds the dataset for the design `~ factors + continuous + condition`.
 ///
-/// `counts` is genes x samples. Gene and sample ids are positional (`"0"`, `"1"`, ...), the caller maps them back.
-pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Result<DESeqResults> {
+/// `counts` is genes x samples. Gene and sample ids are positional (`"0"`, `"1"`, ...).
+pub fn build_dataset(counts: Array2<f64>, design: &Design) -> Result<DESeqDataSet> {
     let (n_genes, n_samples) = counts.dim();
     let gene_ids = (0..n_genes).map(|i| i.to_string()).collect();
     let sample_ids: Vec<String> = (0..n_samples).map(|i| i.to_string()).collect();
     let counts = CountMatrix::new(counts, gene_ids, sample_ids.clone())?;
 
     let mut metadata = SampleMetadata::new(sample_ids);
-    metadata.add_condition(CONDITION, design.condition)?;
+    metadata.add_condition(CONDITION, design.condition.clone())?;
     for (name, values) in &design.factors {
         metadata.add_condition(name, values.clone())?;
     }
@@ -56,7 +56,7 @@ pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Resul
         metadata.add_continuous(name, values.clone())?;
     }
 
-    let mut dds = if design.factors.is_empty() && design.continuous.is_empty() {
+    let dds = if design.factors.is_empty() && design.continuous.is_empty() {
         DESeqDataSet::new(counts, metadata, CONDITION)?
     } else {
         let mut builder = DESeqDataSet::builder().counts(counts).metadata(metadata).main_effect(CONDITION);
@@ -68,6 +68,15 @@ pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Resul
         }
         builder.build()?
     };
+    Ok(dds)
+}
+
+/// Runs size factors, dispersions, GLM fit, Wald test, outlier handling and filtering.
+///
+/// `counts` is genes x samples. Gene and sample ids are positional (`"0"`, `"1"`, ...), the caller maps them back.
+pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Result<DESeqResults> {
+    let n_samples = counts.ncols();
+    let mut dds = build_dataset(counts, &design)?;
 
     estimate_size_factors(&mut dds, SizeFactorMethod::Ratio)?;
     estimate_dispersions(&mut dds, TrendFitMethod::Parametric, &DispersionParams::default())?;
@@ -109,11 +118,8 @@ pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Resul
                 flagged_genes.len()
             );
             let counts = dds.counts().counts();
-            now_zero = flagged_genes
-                .iter()
-                .copied()
-                .filter(|&gene| counts.row(gene).iter().all(|&c| c == 0.0))
-                .collect();
+            now_zero =
+                flagged_genes.iter().copied().filter(|&gene| counts.row(gene).iter().all(|&c| c == 0.0)).collect();
             rust_deseq2::dispersion::refit_without_outliers(&mut dds, &flagged_genes)?;
             results = wald(&dds)?;
             original_counts = counts_before;
@@ -153,10 +159,24 @@ pub fn run_wald(counts: Array2<f64>, design: Design, options: &Options) -> Resul
                 }
                 _ => false,
             };
-            filter_by_cooks_with_counts(&mut results, &cooks, cooks_cutoff, Some(&counts), is_two_level_design, &max_cooks_samples);
+            filter_by_cooks_with_counts(
+                &mut results,
+                &cooks,
+                cooks_cutoff,
+                Some(&counts),
+                is_two_level_design,
+                &max_cooks_samples,
+            );
         }
     }
     drop((original_cooks, original_counts, dds));
+
+    // R: all-zero genes have no dispersion estimate (`dispersions(dds)` is NA), rust_deseq2 reports a value
+    for (dispersion, &base_mean) in results.dispersions.iter_mut().zip(&results.base_means) {
+        if base_mean == 0.0 {
+            *dispersion = f64::NAN;
+        }
+    }
 
     // R results(): genes that are all zero after outlier replacement are reported as not changed
     for &gene in &now_zero {

@@ -1,6 +1,6 @@
-//! Python bindings for `rust_deseq2`, see `deseq2_rs/__init__.py` for the public API.
+//! Python bindings for `rust_deseq2`, see `python/deseq2_rs/__init__.py` for the public API.
 
-mod pipeline;
+pub mod pipeline;
 
 use ndarray::{Array2, ArrayView2, Zip};
 use numpy::{IntoPyArray, PyReadonlyArray2};
@@ -8,7 +8,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-pub use pipeline::{Design, Options, run_wald};
+pub use pipeline::{CONDITION, Design, Options, build_dataset, run_wald};
 
 /// Copies samples x genes counts of any numeric dtype into the genes x samples f64 matrix
 /// `rust_deseq2` works on, in a single (parallel) pass and without intermediate copies.
@@ -69,13 +69,7 @@ fn deseq2_wald<'py>(
     independent_filtering: bool,
     n_threads: Option<usize>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let design = Design {
-        condition,
-        numerator,
-        denominator,
-        factors,
-        continuous,
-    };
+    let design = Design { condition, numerator, denominator, factors, continuous };
     let options = Options {
         alpha,
         min_replicates_for_replace,

@@ -1,0 +1,75 @@
+# Tags a new release when a change to Cargo.lock lands on main (e.g. a merged update-rust-deseq2 PR), or manually.
+# The tag is the source of truth for the version: publish.yml stamps it into Cargo.toml before building, so no
+# version-bump commits have to be pushed to the protected main branch.
+# The tag is pushed with a GitHub App token, tags pushed with the default GITHUB_TOKEN don't trigger publish.yml.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.lock]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version part to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0 # all tags
+
+      - name: Compute the next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump || 'patch' }}
+        run: |
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            # first release: the version in Cargo.toml
+            next=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)
+          else
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            case "$BUMP" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              *)     next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$next (previous: ${latest:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skip if HEAD is already released
+        id: check
+        run: |
+          if git tag --points-at HEAD | grep -q '^v'; then
+            echo "HEAD is already tagged: $(git tag --points-at HEAD)" >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push the tag
+        if: steps.check.outputs.skip != 'true'
+        env:
+          TAG: v${{ steps.version.outputs.next }}
+        run: |
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"

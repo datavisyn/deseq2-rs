@@ -1,0 +1,15 @@
+{
+  "description": "3 replicates per group: too few to replace outliers, their p-values are removed by Cook's filtering",
+  "numerator": "a",
+  "denominator": "b",
+  "levels": [
+    "a",
+    "b"
+  ],
+  "factors": [],
+  "continuous": [],
+  "alpha": 0.1,
+  "independent_filter": true,
+  "cooks_filter": true,
+  "refit_cooks": true
+}

@@ -1,0 +1,75 @@
+# Builds and tests the wheels + sdist for a release tag (vX.Y.Z), publishes them to PyPI with trusted publishing
+# (no API token, configured on pypi.org for this workflow and the `pypi` environment) and creates a GitHub release.
+name: publish
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  # the full CI (build + tests on every platform) with the release version stamped in
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  pypi:
+    needs: [version, ci]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/deseq2-rs/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [version, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          commit=$(grep -A2 '^name = "rust_deseq2"' Cargo.lock | sed -nE 's/^source = ".*#([0-9a-f]{40})"$/\1/p')
+          previous=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vx "v$VERSION" | head -n1 || true)
+          {
+            echo "**rust_deseq2:** [\`${commit:0:7}\`](https://github.com/necoli1822/rust_deseq2/commit/$commit)"
+            if [ -n "$previous" ]; then
+              old=$(git show "$previous:Cargo.lock" | grep -A2 '^name = "rust_deseq2"' | sed -nE 's/^source = ".*#([0-9a-f]{40})"$/\1/p')
+              if [ "$old" != "$commit" ]; then
+                echo "(upstream changes since $previous: [${old:0:7}...${commit:0:7}](https://github.com/necoli1822/rust_deseq2/compare/$old...$commit))"
+              fi
+            fi
+            echo
+            echo "PyPI: https://pypi.org/project/deseq2-rs/$VERSION/"
+          } > notes.md
+          gh release create "v$VERSION" dist/* --title "v$VERSION" --notes-file notes.md --generate-notes

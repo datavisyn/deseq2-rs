@@ -1,0 +1,148 @@
+# Builds the wheels for every target platform and runs the full test suite against each built wheel.
+# Also called by publish.yml, which uploads exactly the wheels tested here.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      version:
+        description: Release version to build (from the tag), stamped into Cargo.toml before building
+        type: string
+        default: ""
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  build:
+    name: build (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: "2_28" }
+          - { name: linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64, manylinux: "2_28" }
+          - { name: macos-arm64, runner: macos-14, target: aarch64, manylinux: "" }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Set release version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: python
+        run: |
+          import os, pathlib, re
+          path = pathlib.Path("Cargo.toml")
+          path.write_text(re.sub(r'(?m)^version = ".*"$', f'version = "{os.environ["VERSION"]}"', path.read_text(), count=1))
+          print(next(line for line in path.read_text().splitlines() if line.startswith("version")))
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux || 'auto' }}
+          args: --release --out dist
+          sccache: "true"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wheels-${{ matrix.platform.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set release version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: python
+        run: |
+          import os, pathlib, re
+          path = pathlib.Path("Cargo.toml")
+          path.write_text(re.sub(r'(?m)^version = ".*"$', f'version = "{os.environ["VERSION"]}"', path.read_text(), count=1))
+          print(next(line for line in path.read_text().splitlines() if line.startswith("version")))
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  test:
+    name: test (${{ matrix.platform.name }}, py${{ matrix.python }})
+    needs: build
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest }
+          - { name: linux-aarch64, runner: ubuntu-24.04-arm }
+          - { name: macos-arm64, runner: macos-14 }
+        # abi3: the same wheel must work on every Python >= 3.12
+        python: ["3.12", "3.13"]
+    steps:
+      # only the tests and fixtures, so nothing can be imported from the source tree
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: tests
+      - uses: actions/download-artifact@v6
+        with:
+          name: wheels-${{ matrix.platform.name }}
+          path: dist
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the built wheel
+        run: |
+          uv venv
+          wheel=$(ls dist/*.whl)
+          uv pip install "deseq2-rs[test] @ file://$PWD/$wheel"
+          uv pip show deseq2-rs
+      - name: Run tests against the wheel
+        run: uv run --no-project pytest tests -v --import-mode=importlib
+
+  # single required status check for branch protection
+  ci-ok:
+    if: always()
+    needs: [rust, build, sdist, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs passed
+        run: |
+          echo '${{ toJSON(needs) }}' | jq -e 'all(.[]; .result == "success")'

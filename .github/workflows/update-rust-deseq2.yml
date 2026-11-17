@@ -1,0 +1,105 @@
+# Updates the rust_deseq2 commit pinned in Cargo.lock and opens (or refreshes) a PR for it.
+# The PR is created with a GitHub App token: PRs created with the default GITHUB_TOKEN don't trigger ci.yml.
+# Merging the PR (after ci.yml is green) triggers release.yml, which tags a new patch version and publishes it.
+name: update-rust-deseq2
+
+on:
+  schedule:
+    - cron: "0 5 * * 1" # Mondays 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+
+      - name: Update rust_deseq2
+        id: update
+        run: |
+          pinned() { grep -A2 '^name = "rust_deseq2"' Cargo.lock | sed -nE 's/^source = ".*#([0-9a-f]{40})"$/\1/p'; }
+          old=$(pinned)
+          cargo update -p rust_deseq2
+          new=$(pinned)
+          {
+            echo "old=$old"
+            echo "new=$new"
+            echo "old_short=${old:0:7}"
+            echo "new_short=${new:0:7}"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$old" = "$new" ]; then
+            echo "rust_deseq2 is up to date ($old)" >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust_deseq2: $old -> $new" >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upstream changes
+        if: steps.update.outputs.changed == 'true'
+        id: changes
+        env:
+          OLD: ${{ steps.update.outputs.old }}
+          NEW: ${{ steps.update.outputs.new }}
+        run: |
+          # commits and touched files of the upstream repo (public, no token needed)
+          compare=$(curl -fsSL "https://api.github.com/repos/necoli1822/rust_deseq2/compare/$OLD...$NEW")
+          {
+            echo 'commits<<EOF'
+            echo "$compare" | jq -r '.commits[] | "- [`\(.sha[0:7])`](\(.html_url)) \(.commit.message | split("\n")[0])"' | tail -n 50
+            echo 'EOF'
+            echo 'main_rs<<EOF'
+            echo "$compare" | jq -r 'if any(.files[]; .filename == "src/main.rs") then "**`src/main.rs` changed**: check whether `run_analysis` changed and port it to `src/pipeline.rs`." else "`src/main.rs` unchanged." end'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate third-party licenses
+        if: steps.update.outputs.changed == 'true'
+        run: cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md
+
+      - name: Create or update the pull request
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: auto/update-rust-deseq2
+          delete-branch: true
+          commit-message: "chore: update rust_deseq2 to ${{ steps.update.outputs.new_short }}"
+          title: "chore: update rust_deseq2 to ${{ steps.update.outputs.new_short }}"
+          labels: dependencies
+          body: |
+            Updates the pinned [rust_deseq2](https://github.com/necoli1822/rust_deseq2) commit:
+
+            `${{ steps.update.outputs.old }}` → `${{ steps.update.outputs.new }}`
+
+            **[Compare upstream changes](https://github.com/necoli1822/rust_deseq2/compare/${{ steps.update.outputs.old }}...${{ steps.update.outputs.new }})**
+
+            ${{ steps.changes.outputs.main_rs }}
+
+            <details><summary>Upstream commits</summary>
+
+            ${{ steps.changes.outputs.commits }}
+
+            </details>
+
+            Merge only when `ci` is green: it builds the wheels for all platforms and runs the golden tests against R DESeq2
+            on each of them. Merging tags a new patch release and publishes it to PyPI (`release.yml`).
+
+            _Opened by `update-rust-deseq2.yml`._

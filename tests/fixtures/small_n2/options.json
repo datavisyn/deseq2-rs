@@ -1,0 +1,15 @@
+{
+  "description": "Two groups, 2 replicates each (minimal design)",
+  "numerator": "a",
+  "denominator": "b",
+  "levels": [
+    "a",
+    "b"
+  ],
+  "factors": [],
+  "continuous": [],
+  "alpha": 0.1,
+  "independent_filter": true,
+  "cooks_filter": true,
+  "refit_cooks": true
+}

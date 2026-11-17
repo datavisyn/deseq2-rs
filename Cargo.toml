@@ -3,15 +3,20 @@ name = "deseq2_rs"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
-publish = false
+description = "Python bindings for rust_deseq2"
+license = "MIT"
+repository = "https://github.com/datavisyn/deseq2-rs"
+publish = false  # only published to PyPI, as wheels
 
 [dependencies]
-# DESeq2 core, pulled from GitHub. Cargo.lock pins the commit, update with `make update-deseq2`.
+# DESeq2 core, pulled from GitHub. Cargo.lock pins the commit, updated weekly by .github/workflows/update-rust-deseq2.yml
+# (or locally with `make update-deseq2`).
 # default-features = false leaves out the kallisto HDF5 reader we don't need.
 rust_deseq2 = { git = "https://github.com/necoli1822/rust_deseq2", branch = "main", default-features = false }
 ndarray = "0.17"
 numpy = "0.29"
-pyo3 = "0.29"
+# abi3-py312: one wheel per platform for all CPython >= 3.12
+pyo3 = { version = "0.29", features = ["abi3-py312"] }
 pyo3-log = "0.13"
 log = "0.4"
 rayon = "1.10"
